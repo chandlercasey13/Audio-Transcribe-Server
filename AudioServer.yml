@@ -1,0 +1,80 @@
+name: CI/CD to EC2 via CodeDeploy (Web API 2)
+
+on:
+  push:
+    branches: [ "master" ]   # change if you deploy from a different branch
+
+env:
+  AWS_REGION: us-east-2
+  S3_BUCKET: codedeploy-audioapp
+  APP_NAME: audio-api-dg
+  DEPLOYMENT_GROUP: audio-api-dg
+  BUILD_CONFIGURATION: Release
+
+  SOLUTION_FILE: SimpleServer.sln
+  WEB_PROJECT: SimpleServer\SimpleServer.csproj
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore $env:SOLUTION_FILE
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build solution (Release)
+        run: msbuild $env:SOLUTION_FILE /p:Configuration=$env:BUILD_CONFIGURATION /m
+
+      - name: Publish Web API 2 project
+        run: >
+          msbuild $env:WEB_PROJECT
+          /p:Configuration=$env:BUILD_CONFIGURATION
+          /p:WebPublishMethod=FileSystem
+          /p:DeleteExistingFiles=True
+          /p:PublishUrl="$env:GITHUB_WORKSPACE\publish"
+
+      - name: Prepare CodeDeploy bundle
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ".\SimpleServer\appspec.yml")) { throw "Missing SimpleServer\appspec.yml" }
+          if (-not (Test-Path ".\SimpleServer\scripts")) { throw "Missing SimpleServer\scripts" }
+
+          Copy-Item ".\SimpleServer\appspec.yml" ".\publish\appspec.yml" -Force
+          New-Item -ItemType Directory -Force -Path ".\publish\scripts" | Out-Null
+          Copy-Item ".\SimpleServer\scripts\*" ".\publish\scripts" -Recurse -Force
+
+          "GitHub build $env:GITHUB_SHA at $(Get-Date -Format s)" | Out-File ".\publish\DEPLOYED_FROM_GHA.txt" -Encoding UTF8
+
+          $zipName = "audioserver_${{ github.run_id }}.zip"
+          if (Test-Path $zipName) { Remove-Item $zipName -Force }
+          Compress-Archive -Path ".\publish\*" -DestinationPath $zipName -Force
+          echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::288761750380:role/GithubActionsAudioServer   # <<< replace with your role ARN
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload bundle to S3
+        run: aws s3 cp "${{ env.ZIP_NAME }}" "s3://${{ env.S3_BUCKET }}/${{ env.ZIP_NAME }}"
+
+      - name: Create CodeDeploy deployment
+        run: >
+          aws deploy create-deployment
+          --application-name "${{ env.APP_NAME }}"
+          --deployment-group-name "${{ env.DEPLOYMENT_GROUP }}"
+          --s3-location bucket=${{ env.S3_BUCKET }},key=${{ env.ZIP_NAME }},bundleType=zip

@@ -188,7 +188,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="appspec.yml" />
-    <Content Include=".github\workflows\deploy.yml" />
+    <Content Include="..\AudioServer.yml" />
     <None Include="packages.config" />
     <Content Include="Views\Shared\Error.cshtml" />
     <Content Include="Views\_ViewStart.cshtml" />
