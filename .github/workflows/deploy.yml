@@ -49,18 +49,29 @@ jobs:
       - name: Prepare CodeDeploy bundle
         shell: pwsh
         run: |
-          if (-not (Test-Path ".\SimpleServer\appspec.yml")) { throw "Missing SimpleServer\appspec.yml" }
-          if (-not (Test-Path ".\SimpleServer\scripts")) { throw "Missing SimpleServer\scripts" }
+          $workspace = $env:GITHUB_WORKSPACE
+          $publish   = Join-Path $workspace "publish"
+          $srcAppspec = Join-Path $workspace "SimpleServer\appspec.yml"
+          $srcScripts = Join-Path $workspace "SimpleServer\scripts"
 
-          Copy-Item ".\SimpleServer\appspec.yml" ".\publish\appspec.yml" -Force
-          New-Item -ItemType Directory -Force -Path ".\publish\scripts" | Out-Null
-          Copy-Item ".\SimpleServer\scripts\*" ".\publish\scripts" -Recurse -Force
+          # Make sure publish folder exists (in case publish step didn’t create it)
+          New-Item -ItemType Directory -Force -Path $publish | Out-Null
 
-          "GitHub build $env:GITHUB_SHA at $(Get-Date -Format s)" | Out-File ".\publish\DEPLOYED_FROM_GHA.txt" -Encoding UTF8
+          if (-not (Test-Path $srcAppspec)) { throw "Missing $srcAppspec" }
+          if (-not (Test-Path $srcScripts)) { throw "Missing $srcScripts" }
+
+          Copy-Item $srcAppspec (Join-Path $publish "appspec.yml") -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $publish "scripts") | Out-Null
+          Copy-Item (Join-Path $srcScripts "*") (Join-Path $publish "scripts") -Recurse -Force
+
+          "GitHub build $env:GITHUB_SHA at $(Get-Date -Format s)" | Out-File (Join-Path $publish "DEPLOYED_FROM_GHA.txt") -Encoding UTF8
 
           $zipName = "audioserver_${{ github.run_id }}.zip"
-          if (Test-Path $zipName) { Remove-Item $zipName -Force }
-          Compress-Archive -Path ".\publish\*" -DestinationPath $zipName -Force
+          $zipPath = Join-Path $workspace $zipName
+
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $publish "*") -DestinationPath $zipPath -Force
+
           echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Configure AWS credentials via OIDC
