@@ -44,7 +44,7 @@ namespace SimpleServer.Controllers
                             expires: DateTime.Now.AddDays(1),
                             signingCredentials: credentials);
             var jwt_token = new JwtSecurityTokenHandler().WriteToken(token);
-            return new { data = "boogers" };
+            return new { data = "Test working" };
         }
         [HttpPost]
         [Route("api/auth/sign-up")]
