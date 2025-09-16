@@ -1,0 +1,28 @@
+version: 0.0
+os: windows
+
+files:
+  - source: \
+    destination: C:\inetpub\audioserver
+    overwrite: true
+
+hooks:
+  ApplicationStop:
+    - location: scripts\application_stop.ps1
+      timeout: 180
+      runas: Administrator
+
+  BeforeInstall:
+    - location: scripts\before_install.ps1
+      timeout: 300
+      runas: Administrator
+
+  AfterInstall:
+    - location: scripts\after_install.ps1
+      timeout: 300
+      runas: Administrator
+
+  ApplicationStart:
+    - location: scripts\application_start.ps1
+      timeout: 180
+      runas: Administrator

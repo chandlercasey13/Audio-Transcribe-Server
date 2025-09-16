@@ -13,14 +13,15 @@ using System.Configuration;
 
 namespace SimpleServer.Controllers
 {
- 
-    public class AuthDefaultController : ApiController
+    
+    public class AuthController : ApiController
     {
 
 
         // GET: api/AuthDefault/5
-        
-        [HttpGet]
+
+        [HttpPost]
+        [Route("api/auth/sign-in")]
         public Object GetToken()
         {
             var key = ConfigurationManager.AppSettings["JwtKey"];
@@ -43,9 +44,11 @@ namespace SimpleServer.Controllers
                             expires: DateTime.Now.AddDays(1),
                             signingCredentials: credentials);
             var jwt_token = new JwtSecurityTokenHandler().WriteToken(token);
-            return new { data = jwt_token };
+            return new { data = "boogers" };
         }
         [HttpPost]
+        [Route("api/auth/sign-up")]
+
         public String GetName1()
         {
             if (User.Identity.IsAuthenticated)
