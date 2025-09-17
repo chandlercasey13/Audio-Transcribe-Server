@@ -9,7 +9,9 @@ using System.Security.Claims;
 using System.Text;
 using System.Web.Http;
 using System.Configuration;
-
+using SimpleServer.Data;         
+using SimpleServer.Models;
+using SimpleServer.Utils;
 
 namespace SimpleServer.Controllers
 {
@@ -46,25 +48,71 @@ namespace SimpleServer.Controllers
             var jwt_token = new JwtSecurityTokenHandler().WriteToken(token);
             return new { data = "Test working" };
         }
+        [AllowAnonymous]
         [HttpPost]
         [Route("api/auth/sign-up")]
-
-        public String GetName1()
+        public IHttpActionResult Signup([FromBody] SignupRequest req)
         {
-            if (User.Identity.IsAuthenticated)
+            if (req == null ||
+                string.IsNullOrWhiteSpace(req.Username) ||
+                string.IsNullOrWhiteSpace(req.Email) ||
+                string.IsNullOrWhiteSpace(req.Password))
+                return Content(HttpStatusCode.BadRequest, new { error = "username, email, and password are required" });
+
+            req.Email = req.Email.Trim();
+            req.Username = req.Username.Trim();
+
+            try
             {
-                var identity = User.Identity as ClaimsIdentity;
-                if (identity != null)
+                using (var db = new AppDbContext())
                 {
-                    IEnumerable<Claim> claims = identity.Claims;
+                    var exists = db.Users.Any(u => u.Username == req.Username || u.Email == req.Email);
+                    if (exists)
+                        return Content(HttpStatusCode.Conflict, new { error = "username or email already in use" });
+
+                    var user = new User
+                    {
+                        Username = req.Username,
+                        Email = req.Email,
+                        PasswordHash = PasswordHasher.Hash(req.Password),
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    db.Users.Add(user);
+                    db.SaveChanges();
+
+                    return Content(HttpStatusCode.Created, new
+                    {
+                        id = user.Id,
+                        username = user.Username,
+                        email = user.Email,
+                        createdAt = user.CreatedAt
+                    });
                 }
-                return "Valid";
             }
-            else
+            catch (Exception ex)
             {
-                return "Invalid";
+                var msg = (ex.InnerException ?? ex).GetBaseException().Message;
+                return Content(HttpStatusCode.InternalServerError, new { error = msg });
             }
         }
+
+        //public String GetName1()
+        //{
+        //    if (User.Identity.IsAuthenticated)
+        //    {
+        //        var identity = User.Identity as ClaimsIdentity;
+        //        if (identity != null)
+        //        {
+        //            IEnumerable<Claim> claims = identity.Claims;
+        //        }
+        //        return "Valid";
+        //    }
+        //    else
+        //    {
+        //        return "Invalid";
+        //    }
+        //}
 
 
 
