@@ -19,35 +19,71 @@ namespace SimpleServer.Controllers
     public class AuthController : ApiController
     {
 
-
+        private static readonly int MaxFailed = 5;                 
+        private static readonly TimeSpan LockoutFor = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan AccessLifetime = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(14);
         // GET: api/AuthDefault/5
 
         [HttpPost]
         [Route("api/auth/sign-in")]
-        public Object GetToken()
+        public IHttpActionResult SignIn([FromBody] LoginRequest req)
         {
-            var key = ConfigurationManager.AppSettings["JwtKey"];
-            var issuer = ConfigurationManager.AppSettings["JwtIssuer"];
+            if (req == null || string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+                return Content(HttpStatusCode.BadRequest, new { error = "email and password are required" });
 
-            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
-            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+            try
+            {
+                using (var db = new AppDbContext())
+                {
+                    var user = db.Users.FirstOrDefault(u => u.Email == req.Email);
+                    if (user == null || !PasswordHasher.Verify(req.Password, user.PasswordHash))
+                        return Content(HttpStatusCode.Unauthorized, new { error = "invalid credentials" });
 
-            //Create a List of Claims, Keep claims name short    
-            var permClaims = new List<Claim>();
-            permClaims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
-            permClaims.Add(new Claim("valid", "1"));
-            permClaims.Add(new Claim("userid", "1"));
-            permClaims.Add(new Claim("name", "bilal"));
+                    // 🔑 Build JWT
+                    var key = ConfigurationManager.AppSettings["JwtKey"];
+                    var issuer = ConfigurationManager.AppSettings["JwtIssuer"];
+                    var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+                    var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-            //Create Security Token object by giving required parameters    
-            var token = new JwtSecurityToken(issuer, //Issure    
-                            issuer,  //Audience    
-                            permClaims,
-                            expires: DateTime.Now.AddDays(1),
-                            signingCredentials: credentials);
-            var jwt_token = new JwtSecurityTokenHandler().WriteToken(token);
-            return new { data = "Test working" };
+                    var claims = new List<Claim>
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new Claim("email", user.Email),
+                new Claim("username", user.Username)
+            };
+
+                    var token = new JwtSecurityToken(
+                        issuer,
+                        issuer,
+                        claims,
+                        expires: DateTime.UtcNow.AddDays(7),
+                        signingCredentials: credentials
+                    );
+
+                    var jwtToken = new JwtSecurityTokenHandler().WriteToken(token);
+
+                    // ✅ Return token + user object
+                    return Ok(new
+                    {
+                        token = jwtToken,
+                        user = new
+                        {
+                            id = user.Id,
+                            username = user.Username,
+                            email = user.Email,
+                            createdAt = user.CreatedAt
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                var msg = (ex.InnerException ?? ex).GetBaseException().Message;
+                return Content(HttpStatusCode.InternalServerError, new { error = msg });
+            }
         }
+
         [AllowAnonymous]
         [HttpPost]
         [Route("api/auth/sign-up")]
@@ -81,12 +117,34 @@ namespace SimpleServer.Controllers
                     db.Users.Add(user);
                     db.SaveChanges();
 
+                    // build JWT
+                    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+                        ConfigurationManager.AppSettings["JwtKey"]));
+                    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                    var claims = new[]
+                    {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Username),
+                new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                new Claim("uid", user.Id.ToString())
+            };
+
+                    var token = new JwtSecurityToken(
+                        issuer: ConfigurationManager.AppSettings["JwtIssuer"],
+                        audience: ConfigurationManager.AppSettings["JwtAudience"],
+                        claims: claims,
+                        expires: DateTime.UtcNow.AddDays(7),
+                        signingCredentials: creds);
+
+                    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
                     return Content(HttpStatusCode.Created, new
                     {
                         id = user.Id,
                         username = user.Username,
                         email = user.Email,
-                        createdAt = user.CreatedAt
+                        createdAt = user.CreatedAt,
+                        token = tokenString
                     });
                 }
             }
